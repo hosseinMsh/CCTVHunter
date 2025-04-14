@@ -130,6 +130,27 @@ fi
 
 # Start JSON array
 echo "[" > "$JSON_FILE"
+
+for subnet in "${subnets[@]}"; do
+  echo "[*] Expanding subnet: $subnet"
+  ips=$(nmap -sL "$subnet" 2>/dev/null | awk '/Nmap scan report/{print $NF}' | grep -Eo '([0-9]+.){3}[0-9]+')
+  for ip in $ips; do
+    while [ "$(jobs | wc -l)" -ge "$THREADS" ]; do
+      sleep 0.2
+    done
+    scan_ip "$ip" &
+  done
+done
+
+wait
+
+# Close JSON array
+echo "{}]" >> "$JSON_FILE"
+
+echo -e "\n✅ Done. Output saved to:"
+echo "  - $CSV_FILE"
+echo "  - $JSON_FILE"
+
 find "$TMP_JSON" -type f -name '*.json' -exec cat {} + | sed '/^\s*$/d' | sed '$!s/},/},/' >> "$JSON_FILE"
 echo "]" >> "$JSON_FILE"
 
