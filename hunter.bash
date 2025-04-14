@@ -21,6 +21,7 @@ scan_ip() {
   local nmap_output
   nmap_output=$(nmap -T4 -A -v "$ip")
 
+  # === Write to CSV ===
   echo "$nmap_output" | awk -v ip="$ip" -v ts="$timestamp" '
     /^PORT/ { in_ports=1; next }
     in_ports && /^[0-9]+\/[a-z]+/ {
@@ -35,11 +36,9 @@ scan_ip() {
     }
   ' >> "$CSV_FILE"
 
-  # Create temporary JSON per host
+  # === Write to temp JSON ===
   echo "$nmap_output" | awk -v ip="$ip" -v ts="$timestamp" '
-    BEGIN {
-      print "["
-    }
+    BEGIN { print "[" }
     /^PORT/ { in_ports=1; next }
     in_ports && /^[0-9]+\/[a-z]+/ {
       split($1, proto, "/");
@@ -51,10 +50,8 @@ scan_ip() {
       gsub(/"/, "", extra);
       printf "{\"ip\":\"%s\",\"port\":\"%s\",\"protocol\":\"%s\",\"service\":\"%s\",\"state\":\"%s\",\"extra\":\"%s\",\"timestamp\":\"%s\"},\n", ip, port, protocol, service, state, extra, ts;
     }
-    END {
-      print "]"
-    }
-  ' | sed '$s/},/}/' > "$TMP_JSON/$ip.json"
+    END { print "{}]" }
+  ' | sed '$!s/},/},/' | sed '$s/{}/ /' > "$TMP_JSON/$ip.json"
 }
 
 # ========== MAIN ==========
@@ -65,10 +62,9 @@ if [ ${#subnets[@]} -eq 0 ]; then
   exit 1
 fi
 
-# Expand IPs and scan in parallel
 for subnet in "${subnets[@]}"; do
-  ipcalc -nb "$subnet" >/dev/null 2>&1 || { echo "Invalid subnet: $subnet"; continue; }
-  ips=$(nmap -sL "$subnet" | awk '/Nmap scan report/{print $NF}' | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+  echo "[*] Expanding subnet: $subnet"
+  ips=$(nmap -sL "$subnet" 2>/dev/null | awk '/Nmap scan report/{print $NF}' | grep -Eo '([0-9]+\.){3}[0-9]+')
   for ip in $ips; do
     while [ "$(jobs | wc -l)" -ge "$THREADS" ]; do
       sleep 0.2
@@ -79,11 +75,11 @@ done
 
 wait
 
-# Merge JSON files into one
+# === Merge JSON Files ===
 echo "[" > "$JSON_FILE"
-find "$TMP_JSON" -type f -name '*.json' -exec cat {} + | sed '$!s/],/],/' >> "$JSON_FILE"
+find "$TMP_JSON" -type f -name '*.json' -exec cat {} + | sed '/^\s*$/d' | sed '$!s/},/},/' >> "$JSON_FILE"
 echo "]" >> "$JSON_FILE"
 
-echo "✅ Done. Output saved to:"
+echo -e "\n✅ Done. Output saved to:"
 echo "  - $CSV_FILE"
 echo "  - $JSON_FILE"
