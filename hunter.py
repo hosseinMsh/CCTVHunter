@@ -73,10 +73,12 @@ def scan_host(ip):
 
 # Main
 def main():
-    print(f"[*] CCTV Hunter starting on {subnet} with {max_threads} threads...\n")
-    network = ipaddress.ip_network(subnet, strict=False)
+    print(f"[*] CCTV Hunter starting on subnets: {', '.join(subnets)} with {max_threads} threads...\n")
     with ThreadPoolExecutor(max_threads) as executor:
-        futures = [executor.submit(scan_host, str(ip)) for ip in network.hosts()]
+        futures = []
+        for subnet in subnets:
+            network = ipaddress.ip_network(subnet, strict=False)
+            futures.extend(executor.submit(scan_host, str(ip)) for ip in network.hosts())
         for _ in as_completed(futures):
             pass
 
